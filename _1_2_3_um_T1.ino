@@ -4,184 +4,223 @@
 
 // ----- Variablen -----
 
-const int PLredPin = 9;     // PIN'S für playerLED: links
-const int PLgreenPin = 10;  //                      dritte von links
-const int PLbluePin = 11;   //                      rechts
 const int GAMEredPin = 5;   // PIN'S für GAMELED:   links
 const int GAMEgreenPin = 6; //                      dritte von links
 const int GAMEbluePin = 7;  //                      rechts
 const int speaker = 8;      // 8-ohm speaker
-const int irSense = A0;     // IR-Entfernungssensor analog pin A0
+
 
 // --------- Spielvariablen -----------
 
 bool Stop = true;           // Spiellampe = Rot
-bool playerOne = true;      // Spieler im Spiel
 int startbedingung = 0;     // Tickt 5 mal also 5 Messungen
-int testwert = 0;           // Wert zum ermitteln der Startposition
-int preval = 0;             // erster Messwert Sensor
-int val = 0;                // zweiter Messwert Sensor
-int calc = 0;               // Betrag der Differenz der beiden oberen Variablen
 
 enum zustand {Start, Play, Win, Lose};  // Zustand wo im Spiel man ist
 enum zustand gamecheck = Start;
 
-// ----- IR Sensor -----
+// Alle Variablen die einem Spieler zugewiesen werden
+struct player {
 
-int distance = 0;           // Distanzvariable
-int averaging = 0;          // Durchschnittsdistanz
-
-
-
+    bool inGame = true;
+    bool ready = false;
+    int irSense = 0;        // IR-Entfernungssensor analog pin A0
+    int distance = 0;
+    int averaging = 0;
+    int preval = 0;
+    int val = 0;
+    int calc = 0;
+    int PLredPin = 0;       // PIN'S für playerLED: links
+    int PLgreenPin = 0;     //                      dritte von links
+    int PLbluePin = 0;      //                      rechts
+};
+//Spieler werden erstellt
+//Todo: Auf Buttondruck Spieleranzahl erstellen!
+struct player player1;
+struct player player2;
 
 
 
 // ----- Wird einmal bei Systemstart ausgeführt -----
 void setup() {
     Serial.begin(9600); // Serial Monitor window
+    // ----- Pins für player2LED -------
+    pinMode(2, OUTPUT);
+    pinMode(3, OUTPUT);
+    pinMode(4, OUTPUT);
     // ----- Pins für gameLED -------
     pinMode(5, OUTPUT);
     pinMode(6, OUTPUT);
     pinMode(7, OUTPUT);
-    // ----- Pins für playerLED -----
+    // ----- Pins für player1LED -----
     pinMode(9, OUTPUT);
     pinMode(10, OUTPUT);
     pinMode(11, OUTPUT);
+    // Struct Variablen initialisieren
+    player1.PLredPin = 9;
+    player1.PLgreenPin = 10;
+    player1.PLbluePin = 11;
+    player1.irSense = A0;
+
+    player2.PLredPin = 2;
+    player2.PLgreenPin = 3;
+    player2.PLbluePin = 4;
+    player2.irSense = A1;
     // ----- Systemstartmelodie -----
     systemstartMelodie();
-    playerLedColor(0, 0, 255);
 }
 
 // ----- Wird immer ausgeführt -----
 void loop() {
     // ----------------------------------------- Startbedingung prüfen ------------------------------------------------
+    BEGIN: startbedingung = 0;
+    player1.inGame = true;
+    player2.inGame = true;
+    while (gamecheck == Start) {
+        playerLedColor(&player1, 0, 0, 255);                // Alle LED's BLAU
+        playerLedColor(&player2, 0, 0, 255);
+        gameLedColor(0, 0, 255);
+        irRead();
+        // Todo: distance auf richtigen Wert setzen
+        if((player1.distance > 420 && player1.distance < 730)
+            && (player2.distance > 420 && player2.distance < 730)) { // Bei 5 erfolgreichen Tests gamecheck = Play
+            Serial.println("Start Test -- Positiv: ");
+            Serial.println(player1.distance);
+            Serial.println(player2.distance);
+            startbedingung++;
+        }
+        else {
+            Serial.println("Start Test -- Negativ: ");            // Bei negativem Test startbedingung == 0
+            Serial.println(player1.distance);
+            Serial.println(player2.distance);
+            startbedingung = 0;
+        }
 
+        if ( startbedingung == 5){                              // Startbedingung erfüllt
+            startMelodie();                                     // Startmelodie
+            playerLedColor(&player1, 0, 255, 0);                // Beide Spieler GRÜN
+            playerLedColor(&player2, 0, 255, 0);                // Beide Spieler GRÜN
+            gameLedColor(0, 255, 0);                            // gameLED GRÜN
+            gamecheck = Play;
+            Stop = false;
+        }
+    }
 
+    //  ---------------- Startbedingung erfüllt. Spiel geht los! -----------------------------------------
+    while (gamecheck == Play){
+        /* --- Wenn große Lampe Grün ist ---
+         * Siegbedingung prüfen und playerLED WEIß setzen */
+        if ( Stop == false ) {
+            for (int j = 0; j<=randomTime()*4; j++) {
+                irRead();
+                if ((player1.distance > 725)
+                    && (player1.inGame == true)){
+                    playerLedColor(&player1, 255, 255, 255);
+                    gamecheck = Win;
+                    break;
+                }
+                else if ((player2.distance > 725)
+                        && (player1.inGame == true)){
+                    playerLedColor(&player2, 255, 255, 255);
+                    gamecheck = Win;
+                    break;
+                }
+            }
+            if (gamecheck == Play) changeLight();               // Rot werden
+        }
+
+        /* --- Wenn große Lampe rot ist ---
+         * Abstandsmessung am Anfang, danach so lange ROT ist prüfen ob Wert sich verändert
+         * FALLS JA         ---> Spieler draußen
+         * Falls NEIN       ---> Wieder GRÜN werden
+         * Falls ALLE JA    ---> Spiel vorbei */
+        if ( Stop == true ) {
+            for (int i=0; i<=2; i++ ) {                         // 2 Messungen um später Differenz zu vergleichen
+                irRead();
+                player1.preval = player1.distance;
+                player2.preval = player2.distance;
+            }
+            Serial.print("Preval: ");
+            Serial.println(player1.preval);
+            Serial.println(player2.preval);
+            for (int i=0; i<=randomTime()*4; i++ ) {            // 2x die Sekunde neue Messung
+                irRead();
+                if ( player1.inGame == true ) player1.val = player1.distance;
+                if ( player2.inGame == true ) player2.val = player2.distance;
+                Serial.print("Val: ");
+                Serial.println(player1.val);
+                Serial.println(player2.val);
+                // --- Spieler1 hat sich bei Rot bewegt ---
+                if (( calcDifference(&player1) > 30 )
+                    && (player1.inGame == true)) {
+                    player1.inGame = false;
+                    playerLedColor(&player1, 255, 0, 0);        // Spieler ROT
+                    spielerAusMelodie();
+                }
+                // --- Spieler2 hat sich bei Rot bewegt ---
+                if (( calcDifference(&player2) > 30 )
+                    && (player2.inGame == true)){
+                    player2.inGame = false;
+                    playerLedColor(&player2, 255, 0, 0);        // Spieler ROT
+                    spielerAusMelodie();
+                }
+                // --- Beide Spieler sind draußen ---
+                if ( player1.inGame == false && player2.inGame == false) {
+                    gamecheck = Start;
+                    verlorenMelodie();
+                    goto BEGIN;
+                }
+            }
+            if (gamecheck == Play) changeLight();               // Ist Spieler noch im Spiel . Grün werden
+        }
+    }
+    // --- Siegesfall ÜBERGANGSLÖSUNG ---
     if ( gamecheck == Win ){
         gameLedColor(255, 200, 200);
         siegMelodie();
-        delay(3000);                                            // ÜBERGANGSLÖSUNG
-        gamecheck = Start;                                      // ÜBERGANGSLÖSUNG --> 3s warten und neustart
-    }
-
-    while (gamecheck == Start) {
-       checkStart();                                            // Funktion Startbedingung prüfen
-    }
-
-    //  ---------------- Startbedingung erfüllt -> Spiel geht los! -----------------------------------------
-    while (gamecheck == Play){
-        checkGame();                                            // Funktion Verhalten im Spiel
-
-    }
-    // --- Spieler hat sich bei Rot bewegt ---
-    if (gamecheck == Lose) {
-        playerLedColor(255, 0, 0);                          // Spieler ROT
-        verlorenMelodie();
-        gamecheck = Start;
+        delay(6000);                                            // ÜBERGANGSLÖSUNG
+        gamecheck = Start;                                      // ÜBERGANGSLÖSUNG -. 3s warten und neustart
     }
 }
 
 // ----------------------------------------------- Funktionen ---------------------------------------------------------
 
-void checkStart() {
-    gameLedColor(0, 0, 255);                                // gameLED auf Blau stellen
-    testwert = irRead() ;
-    if(testwert > 600 && testwert < 630) {                  // Bei 5 erfolgreichen Tests gamecheck = Play
-        Serial.print("Start Test -- Positiv: ");
-        Serial.println(testwert);
-        startbedingung++;
-    }
-    else {
-        Serial.print("Start Test -- Negativ: ");            // Bei negativem Test startbedingung == 0
-        Serial.println(testwert);
-        startbedingung = 0;
-    }
+// Durchschnitt aus den letzten 5 Messwerten (um Messungenauigkeiten vorzubeugen)
+void irRead() {
+    player1.averaging = 0;
+    player2.averaging = 0;
 
-    if ( startbedingung == 5){                              // Startbedingung erfüllt
-        delay(2000);                                        // 2 Sekunden warten
-        startMelodie();                                     // Startmelodie
-        playerLedColor(0, 255, 0);                          // Beide Lampen Grün
-        gameLedColor(0, 255, 0);
-        startbedingung = 0;
-        gamecheck = Play;
-        Stop = false;                                       // gameLED GRÜN
-    }
-}
-
-void checkGame() {
-    // --- Wenn große Lampe Grün ist ---
-    if ( Stop == false ) {
-        for (int j = 0; j<=randomTime()*2; j++) {
-            preval = irRead() ;
-            Serial.print("preval(GRÜN): ");
-            Serial.println(preval);
-            if ( preval > 865 ) {
-                gamecheck = Win;
-                break;
-            }
-        }
-        if (gamecheck == Play) changeLight();               // Rot werden
-    }
-
-    // --- Wenn große Lampe rot ist ---
-    if ( Stop == true ) {
-        preval = irRead();                                  // 1 Messung zum vergleich ob sich bewegt wurde in Rotphase
-        Serial.print("Preval: ");
-        Serial.println(preval);
-        for (int k=0; k<=randomTime()*4; k++ ) {            // 4x die Sekunde neue Messung
-            val = irRead() ;
-            Serial.print("Val: ");
-            Serial.println(val);
-            calc = abs((val-preval));                       // Wird mit erster Messung verglichen
-            Serial.print("Calc: ");
-            Serial.println(calc);
-            if ( calc > 10 ) {
-                gamecheck = Lose;                           // Spieler aus dem Spiel -> Zurück an Startbedingung
-                break;
-            }
-        }
-        if (gamecheck == Play) changeLight();               // Ist Spieler noch im Spiel -> Grün werden
-
-        }
-}
-
-
-
-
-
-
-/* Durchschnitt aus den letzten 5 Messwerten (um Messungenauigkeiten vorzubeugen)
- * Standardwerte: del = 50, counts = 5
- * !!!!EIN IRREAD DAUERT ALSO 250 MS!!!! */
-
-int irRead() {
-    averaging = 0;
-    for (int i=0; i<=5; i++) { // sampling of [counts] readings from sensor
-        distance = analogRead(irSense);
-        averaging = averaging + distance;
-        delay(50);     //  Wait 55 ms between each read
-                        //  According to datasheet time between each read
+    for (int i=0; i<5; i++) { // sampling of 5 readings from sensor
+        player1.distance = analogRead(player1.irSense);
+        player2.distance = analogRead(player2.irSense);
+        player1.averaging = player1.averaging + player1.distance;
+        player2.averaging = player2.averaging + player2.distance;
+        delay(55);     // Wait 55 ms between each read
+                        // According to datasheet time between each read
                         //  is -38ms +/- 10ms. Waiting 55 ms assures each
                         //  read is from a different sample
+    player1.distance = player1.averaging / 5;  // Average out readings
+    player2.distance = player2.averaging / 5;  // Average out readings
     }
-    distance = averaging / 5;  // Average out readings
-    return(distance);               // Return value
 }
 
 // playerLED in bestimmter Farbe leuchten lassen (RGB)
-
-void playerLedColor(int a, int b, int c) {
-    analogWrite(PLredPin, a);
-    analogWrite(PLgreenPin, b);
-    analogWrite(PLbluePin, c);
+void playerLedColor(struct player *player, int a, int b, int c) {
+    analogWrite(player->PLredPin, a);
+    analogWrite(player->PLgreenPin, b);
+    analogWrite(player->PLbluePin, c);
 }
 
-//gameLED in bestimmter Farbe leuchten lassen (RGB)
-
+// GameLED in bestimmter Farbe leuchten lassen (RGB)
 void gameLedColor(int a, int b, int c) {
     analogWrite(GAMEredPin, a);
     analogWrite(GAMEgreenPin, b);
     analogWrite(GAMEbluePin, c);
+}
+
+// Betrag der Differenz aus 2 Messungen errechnen (Spielerabhängig)
+int calcDifference(struct player *player) {
+    player->calc = abs(player->val-player->preval);
+    return player->calc;
 }
 
 /* gibt je nachdem ob Rot- oder Grünphase ist eine zufällige Zeit aus
@@ -220,11 +259,11 @@ void systemstartMelodie() {
     int noteDurations[] = {4, 8, 8, 4, 4, 4, 4, 4};
 
     for (int thisNote = 0; thisNote <= 8; thisNote++){
-            int noteDuration = 1000 / noteDurations[thisNote];
-            tone(speaker, melody[thisNote], noteDuration);
-            int pauseBetweenNotes = noteDuration * 1.30;
-            delay(pauseBetweenNotes);
-            noTone(speaker);
+        int noteDuration = 1000 / noteDurations[thisNote];
+        tone(speaker, melody[thisNote], noteDuration);
+        int pauseBetweenNotes = noteDuration * 1.30;
+        delay(pauseBetweenNotes);
+        noTone(speaker);
     }
 }
 
@@ -234,27 +273,39 @@ void startMelodie() {
     int noteDurations[] = {4, 4, 4, 4};
 
     for (int thisNote = 0; thisNote <= 4; thisNote++){
-                int noteDuration = 1000 / noteDurations[thisNote];
-                tone(speaker, melody[thisNote], noteDuration);
-                int pauseBetweenNotes = noteDuration * 1.30;
-                delay(pauseBetweenNotes);
-                noTone(speaker);
+        int noteDuration = 1000 / noteDurations[thisNote];
+        tone(speaker, melody[thisNote], noteDuration);
+        int pauseBetweenNotes = noteDuration * 1.30;
+        delay(pauseBetweenNotes);
+        noTone(speaker);
+    }
+}
+void spielerAusMelodie() {
+    int melody[] = {NOTE_C3, NOTE_A2};
+    int noteDurations[] = {2, 2};
+
+    for (int thisNote = 0; thisNote <= 2; thisNote++){
+        int noteDuration = 1000 / noteDurations[thisNote];
+        tone(speaker, melody[thisNote], noteDuration);
+        int pauseBetweenNotes = noteDuration * 1.30;
+        delay(pauseBetweenNotes);
+        noTone(speaker);
     }
 }
 
 void verlorenMelodie() {
-        // ----- Noten für Melodie und Länge der Noten -----
-        int melody[] = {NOTE_G3, NOTE_D4, 0, NOTE_D4, NOTE_D4, NOTE_C4, NOTE_B3, NOTE_G3, NOTE_E3, 0, NOTE_E3, NOTE_C3};
-        int noteDurations[] = {4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4};
+    //----- Noten für Melodie und Länge der Noten MARIOMELODIE -----
+    int melody[] = {NOTE_G3, NOTE_D4, 0, NOTE_D4, NOTE_D4, NOTE_C4, NOTE_B3, NOTE_G3, NOTE_E3, 0, NOTE_E3, NOTE_C3};
+    int noteDurations[] = {4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4};
 
 
-        for (int thisNote = 0; thisNote <= 12; thisNote++){
-                int noteDuration = 1000 / noteDurations[thisNote];
-                tone(speaker, melody[thisNote], noteDuration);
-                int pauseBetweenNotes = noteDuration * 1.30;
-                delay(pauseBetweenNotes);
-                noTone(speaker);
-        }
+    for (int thisNote = 0; thisNote <= 12; thisNote++){
+        int noteDuration = 1000 / noteDurations[thisNote];
+        tone(speaker, melody[thisNote], noteDuration);
+        int pauseBetweenNotes = noteDuration * 1.30;
+        delay(pauseBetweenNotes);
+        noTone(speaker);
+    }
 }
 
 void siegMelodie() {
@@ -263,10 +314,11 @@ void siegMelodie() {
     int noteDurations[] = {4, 4, 4, 4, 2, 4, 2};
 
     for (int thisNote = 0; thisNote <= 7; thisNote++){
-                int noteDuration = 1000 / noteDurations[thisNote];
-                tone(speaker, melody[thisNote], noteDuration);
-                int pauseBetweenNotes = noteDuration * 1.30;
-                delay(pauseBetweenNotes);
-                noTone(speaker);
+        int noteDuration = 1000 / noteDurations[thisNote];
+        tone(speaker, melody[thisNote], noteDuration);
+        int pauseBetweenNotes = noteDuration * 1.30;
+        delay(pauseBetweenNotes);
+        noTone(speaker);
     }
 }
+
